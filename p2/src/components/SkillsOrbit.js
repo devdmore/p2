@@ -138,7 +138,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
 
         // Central Core (The Sun)
         const coreGeometry = new THREE.SphereGeometry(0.8, 32, 32);
-        const coreMaterial = new THREE.MeshPhongMaterial({ color: 0xffa500, emissive: 0xff6600, shininess: 50 });
+        const coreMaterial = new THREE.MeshPhongMaterial({ color: 0xffa500, emissive: 0xface30, shininess: 50 });
         const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
         coreMesh.userData.originalScale = coreMesh.scale.clone();
         scene.add(coreMesh);
@@ -472,9 +472,9 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
     }, [data]); 
 
     return (
-        <div className="bg-white p-6 sm:p-10 rounded-2xl shadow-xl">
-            <h3 className="text-2xl font-bold mb-4 text-slate-800 border-b border-slate-200 pb-2">3D Skills Orbit</h3>
-            <p className="text-slate-600 mb-4">
+        <div className="bg-white p-6 sm:p-10 rounded-2xl shadow-xl dark:bg-slate-800">
+            <h3 className="text-2xl font-bold mb-4 text-slate-800 border-b border-slate-200 pb-2 dark:text-slate-200 dark:border-slate-700">3D Skills Orbit</h3>
+            <p className="text-slate-600 mb-4 dark:text-slate-400">
                 This dynamic visualization groups my expertise into core competency areas, illustrating how my skills interoperate and orbit around core architectural principles. **Drag to rotate, pinch/scroll to zoom, and click the category tabs below to filter the visualization!**
             </p>
             <div 
@@ -511,7 +511,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                                 className={`px-3 py-1 text-sm rounded-full font-medium shadow-md transition-all duration-300 ${
                                     isActive 
                                         ? 'text-white' // Active: White text on category color
-                                        : 'text-slate-800 bg-slate-200 hover:bg-slate-300' // Inactive: Dark text on light grey
+                                        : 'text-slate-800 bg-slate-200 hover:bg-slate-300 dark:text-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600' // Inactive: Dark text on light grey
                                 }`}
                                 style={isActive ? { backgroundColor: categoryColor } : {}}
                             >

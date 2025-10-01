@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
+import { ThemeContext } from './context/ThemeContext';
 import CustomStyles from './components/CustomStyles';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -13,6 +14,13 @@ export default function App() {
     const [activeJobIndex, setActiveJobIndex] = useState(0);
     const [activeFilter, setActiveFilter] = useState('all');
     const [activeSkillCategories, setActiveSkillCategories] = useState([]);
+    const { theme } = useContext(ThemeContext);
+
+    useEffect(() => {
+        const root = window.document.documentElement;
+        root.classList.remove(theme === 'light' ? 'dark' : 'light');
+        root.classList.add(theme);
+    }, [theme]);
     
     const allTags = Array.from(new Set(resumeData.projects.flatMap(p => p.tags)));
 

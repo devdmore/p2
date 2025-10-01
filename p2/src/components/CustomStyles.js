@@ -4,8 +4,6 @@ const CustomStyles = () => (
     <style jsx="true">{`
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9;
-            color: #1e293b;
         }
         .timeline-item::before {
             content: '';
@@ -20,6 +18,10 @@ const CustomStyles = () => (
             transform: translateY(-50%);
             z-index: 10;
             transition: all 0.3s ease;
+        }
+        .dark .timeline-item::before {
+            background-color: #1e293b;
+            border-color: #06b6d4;
         }
         .timeline-item.active::before {
              background-color: #06b6d4;
