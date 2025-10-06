@@ -23,6 +23,13 @@ let skillCounter = 0; // Global counter to cycle through planet styles
 const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
     const mountRef = useRef(null);
     const filterStateRef = useRef(activeCategories);
+    // Camera control exposed to UI (keeps zoom state and callable setter)
+    const cameraControlRef = useRef({
+        distance: 16,
+        min: 4,
+        max: 20,
+        setCameraPos: null
+    });
     const [threeLoaded, setThreeLoaded] = useState(true); // Now loaded via import, so it's always available
 
     // Update the ref whenever activeCategories changes
@@ -97,6 +104,16 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
             camera.lookAt(0, 0, 0);
         };
 
+        // expose control functions to the outside UI via ref
+        cameraControlRef.current.distance = currentCameraZ;
+        cameraControlRef.current.min = minZoomZ;
+        cameraControlRef.current.max = maxZoomZ;
+        cameraControlRef.current.setCameraPos = (d) => {
+            currentCameraZ = d;
+            cameraControlRef.current.distance = d;
+            setCameraPositionFromDistance(d);
+        };
+
         const currentMount = mountRef.current;
         if (!currentMount) return;
 
@@ -115,6 +132,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
 
         // Initialize camera at the chosen top angle and distance
         setCameraPositionFromDistance(currentCameraZ);
+        cameraControlRef.current.distance = currentCameraZ;
 
         // --- PARTICLE SYSTEM (GALAXY BACKGROUND) ---
         const starGeometry = new THREE.BufferGeometry();
@@ -154,6 +172,76 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
         coreMesh.userData.originalScale = coreMesh.scale.clone();
         scene.add(coreMesh);
+        
+        // --- Sun glow: halo sprite (always faces camera) ---
+        const haloCanvas = document.createElement('canvas');
+        haloCanvas.width = haloCanvas.height = 256;
+        const hctx = haloCanvas.getContext('2d');
+        // radial gradient (center bright -> outer soft)
+        const grad = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(255,220,120,1)');
+        grad.addColorStop(0.2, 'rgba(255,180,80,0.9)');
+        grad.addColorStop(0.5, 'rgba(255,140,30,0.55)');
+        grad.addColorStop(1, 'rgba(255,140,30,0)');
+        hctx.fillStyle = grad;
+        hctx.fillRect(0, 0, 256, 256);
+        const haloTexture = new THREE.CanvasTexture(haloCanvas);
+        const haloMaterial = new THREE.SpriteMaterial({
+            map: haloTexture,
+            color: 0xffffff,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            opacity: 0.9,
+            depthWrite: false
+        });
+        const haloSprite = new THREE.Sprite(haloMaterial);
+        haloSprite.scale.set(5.0, 5.0, 1); // slightly larger than core
+        coreMesh.add(haloSprite);
+
+        // --- Animated corona (rays) via simple shader on a plane ---
+        const coronaUniforms = {
+            time: { value: 0.0 },
+            color: { value: new THREE.Color(0xffd07a) },
+            opacity: { value: 0.35 }
+        };
+        const coronaVS = `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+        const coronaFS = `
+            precision mediump float;
+            uniform float time;
+            uniform vec3 color;
+            uniform float opacity;
+            varying vec2 vUv;
+            void main() {
+                vec2 uv = vUv - 0.5;
+                float r = length(uv);
+                // base soft glow
+                float glow = smoothstep(0.5, 0.0, r);
+                // radial rays using angle + time to animate
+                float a = atan(uv.y, uv.x);
+                float rays = pow(max(0.0, cos(a * 24.0 + time * 3.0)), 12.0) * (1.0 - r);
+                float intensity = clamp(glow + rays * 0.8, 0.0, 1.0);
+                vec3 col = color * intensity;
+                gl_FragColor = vec4(col, intensity * opacity);
+            }
+        `;
+        const coronaMaterial = new THREE.ShaderMaterial({
+            uniforms: coronaUniforms,
+            vertexShader: coronaVS,
+            fragmentShader: coronaFS,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+        const coronaPlane = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), coronaMaterial);
+        coronaPlane.position.set(0, 0, 0);
+        scene.add(coronaPlane);
         
         // Lighting
         const ambientLight = new THREE.AmbientLight(0x404040, 2); 
@@ -274,6 +362,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
             currentCameraZ += event.deltaY * zoomSpeed; 
             currentCameraZ = Math.max(minZoomZ, Math.min(maxZoomZ, currentCameraZ));
             setCameraPositionFromDistance(currentCameraZ);
+            cameraControlRef.current.distance = currentCameraZ;
         };
  
         // 2. Drag/Touch Start/Move/End (Rotation & Pinch)
@@ -354,6 +443,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                     
                     currentCameraZ = Math.max(minZoomZ, Math.min(maxZoomZ, currentCameraZ));
                     setCameraPositionFromDistance(currentCameraZ);
+                    cameraControlRef.current.distance = currentCameraZ;
                  
                      initialPinchDistance = currentPinchDistance; 
                  }
@@ -413,6 +503,12 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
 
             // Re-run visibility check in the animation loop to ensure Three.js updates
             updateVisibility();
+            
+            // update animated corona time and orient plane toward camera
+            if (coronaMaterial) {
+                coronaMaterial.uniforms.time.value += 0.02;
+                coronaPlane.lookAt(camera.position);
+            }
 
             if (!isDragging) { 
                 const speedMultiplier = isSlowed ? 0.5 : 1.0;
@@ -479,12 +575,37 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                         }
                     }
                 });
+                // dispose corona and halo resources
+                try {
+                    if (haloTexture) haloTexture.dispose();
+                    if (haloMaterial && haloMaterial.map) haloMaterial.map.dispose();
+                    if (haloMaterial) haloMaterial.dispose();
+                    if (coronaMaterial) coronaMaterial.dispose();
+                    if (coronaPlane && coronaPlane.geometry) coronaPlane.geometry.dispose();
+                } catch (e) {
+                    console.warn('Error disposing resources:', e);
+                }
                 if (renderer.domElement) {
                      currentMount.removeChild(renderer.domElement);
                 }
             }
         };
     }, [data]); 
+
+    // Simple UI handlers (use cameraControlRef to update three.js camera via stored setter)
+    const zoomStep = 1.0;
+    const zoomIn = () => {
+        const ctl = cameraControlRef.current;
+        const next = Math.max(ctl.min, (ctl.distance || 16) - zoomStep);
+        if (ctl.setCameraPos) ctl.setCameraPos(next);
+        else ctl.distance = next;
+    };
+    const zoomOut = () => {
+        const ctl = cameraControlRef.current;
+        const next = Math.min(ctl.max, (ctl.distance || 16) + zoomStep);
+        if (ctl.setCameraPos) ctl.setCameraPos(next);
+        else ctl.distance = next;
+    };
 
     return (
         <div className="bg-white p-6 sm:p-10 rounded-2xl shadow-xl dark:bg-slate-800">
@@ -493,19 +614,25 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                 This dynamic visualization groups my expertise into core competency areas, illustrating how my skills interoperate and orbit around core architectural principles. **Drag to rotate, pinch/scroll to zoom, and click the category tabs below to filter the visualization!**
             </p>
             <div 
-                ref={mountRef} 
-                style={{ 
+                 ref={mountRef} 
+                 style={{ 
+                    position: 'relative',
                     width: '100%', 
                     height: '400px', 
-                    margin: '0 auto', 
-                    overflow: 'hidden', 
-                    backgroundColor: '#030712', // Very dark gray/black for space
-                    cursor: 'default' 
-                }} 
-                className="mt-4 rounded-xl"
-            >
+                     margin: '0 auto', 
+                     overflow: 'hidden', 
+                     backgroundColor: '#030712', // Very dark gray/black for space
+                     cursor: 'default' 
+                 }} 
+                 className="mt-4 rounded-xl"
+             >
+                {/* Zoom buttons (top-right) */}
+                <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, display: 'flex', gap: 8 }}>
+                    <button onClick={zoomIn} aria-label="Zoom in" className="w-8 h-8 rounded-full bg-slate-800 text-white shadow flex items-center justify-center">+</button>
+                    <button onClick={zoomOut} aria-label="Zoom out" className="w-8 h-8 rounded-full bg-slate-800 text-white shadow flex items-center justify-center">−</button>
+                </div>
                 {/* Three.js Canvas will be mounted here */}
-            </div>
+             </div>
             {threeLoaded && (
                 <div className="flex flex-wrap justify-center gap-2 mt-6">
                     {Object.keys(data).map((category, index) => {
