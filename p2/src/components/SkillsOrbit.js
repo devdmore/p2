@@ -75,7 +75,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         // DRAG/ZOOM CONTROL VARIABLES
         let previousMousePosition = { x: 0, y: 0 };
         const rotationSpeed = 0.005; 
-        let currentCameraZ = 12; 
+        let currentCameraZ = 16; 
         const minZoomZ = 4;
         const maxZoomZ = 20;
         let initialPinchDistance = null;
@@ -85,6 +85,17 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         const camera = new THREE.PerspectiveCamera(75, 400 / 300, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setClearColor(0x000000, 0); 
+
+        // Camera angle control: 0 = top-down, 1 = side-on. 0.4 => 40% from top.
+        const topAnglePercent = 0.4;
+        const angleFromTop = topAnglePercent * (Math.PI / 2); // polar angle from Y axis
+        const setCameraPositionFromDistance = (distance) => {
+            // place camera on the Y-Z plane at given polar angle so it looks from "above" at the requested angle
+            camera.position.x = 0;
+            camera.position.y = distance * Math.sin(angleFromTop);
+            camera.position.z = distance * Math.cos(angleFromTop);
+            camera.lookAt(0, 0, 0);
+        };
 
         const currentMount = mountRef.current;
         if (!currentMount) return;
@@ -102,7 +113,8 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         setSize();
         window.addEventListener('resize', setSize);
 
-        camera.position.z = currentCameraZ; 
+        // Initialize camera at the chosen top angle and distance
+        setCameraPositionFromDistance(currentCameraZ);
 
         // --- PARTICLE SYSTEM (GALAXY BACKGROUND) ---
         const starGeometry = new THREE.BufferGeometry();
@@ -155,13 +167,15 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         scene.add(orbitsGroup);
 
         const skillCategories = Object.keys(data);
-        const orbitRadiusStep = 2.0;
+        // Increase base radius and spacing so labels don't overlap between rings
+        const baseOrbitRadius = 3.5;   // radius of the innermost orbit
+        const orbitSpacing = 3.5;      // distance between successive orbits
         let skillObjects = [];
         let categoryMeshes = {}; // Store all meshes and orbits by category name
 
         skillCategories.forEach((category, categoryIndex) => {
             const skills = data[category];
-            const radius = orbitRadiusStep + categoryIndex * 1.5; 
+            const radius = baseOrbitRadius + categoryIndex * orbitSpacing;
             const orbitColor = new THREE.Color().setHSL(categoryIndex / skillCategories.length, 0.9, 0.6);
 
             // Orbit line (visual guide)
@@ -190,7 +204,8 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                 // Add Text Sprite (label)
                 const textSprite = createTextSprite(skill, '#ffffff'); // White text
                 if (textSprite) {
-                    textSprite.position.y = style.size + 0.5; // Y offset for readability
+                    // Slightly increase vertical offset so labels clear neighboring rings
+                    textSprite.position.y = style.size + 0.8;
                     mesh.add(textSprite);
                 }
                 
@@ -258,9 +273,9 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
             const zoomSpeed = 0.005;
             currentCameraZ += event.deltaY * zoomSpeed; 
             currentCameraZ = Math.max(minZoomZ, Math.min(maxZoomZ, currentCameraZ));
-            camera.position.z = currentCameraZ;
+            setCameraPositionFromDistance(currentCameraZ);
         };
-
+ 
         // 2. Drag/Touch Start/Move/End (Rotation & Pinch)
         const startDrag = (clientX, clientY) => {
             isDragging = true;
@@ -338,10 +353,10 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
                     currentCameraZ -= pinchDifference * zoomSpeed; 
                     
                     currentCameraZ = Math.max(minZoomZ, Math.min(maxZoomZ, currentCameraZ));
-                    camera.position.z = currentCameraZ;
-                
-                    initialPinchDistance = currentPinchDistance; 
-                }
+                    setCameraPositionFromDistance(currentCameraZ);
+                 
+                     initialPinchDistance = currentPinchDistance; 
+                 }
             } else if (e.touches.length === 1) {
                 // Single finger move (Rotation)
                 if (!isDragging) return; 
