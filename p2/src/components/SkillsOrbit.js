@@ -72,6 +72,127 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
         return sprite;
     };
 
+    // Utility: convert numeric hex to CSS color string
+    const hexToCSS = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
+    
+    // Create a simple procedural texture on a canvas for a planet
+    const createPlanetTexture = (name, baseHex, styleType = 'rock') => {
+        const size = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // base gradient
+        const baseColor = hexToCSS(baseHex);
+        const grad = ctx.createLinearGradient(0, 0, size, size);
+        grad.addColorStop(0, baseColor);
+        grad.addColorStop(1, '#000000');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        // add different procedural details per type
+        if (styleType === 'gas') {
+            // horizontal bands
+            const bandCount = 6 + (name.length % 4);
+            for (let i = 0; i < bandCount; i++) {
+                const y = (i / bandCount) * size;
+                const h = size / bandCount;
+                const hueShift = (i % 2 === 0) ? 10 : -8;
+                ctx.fillStyle = shadeColor(baseColor, hueShift, -8 + Math.random() * 6);
+                ctx.fillRect(0, y, size, h + (Math.random() * 8 - 4));
+            }
+            // subtle storms/spots
+            for (let s = 0; s < 6; s++) {
+                const rx = Math.random() * size;
+                const ry = Math.random() * size;
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(255,220,200,0.15)';
+                ctx.ellipse(rx, ry, 20 + Math.random() * 60, 12 + Math.random() * 30, Math.random() * Math.PI, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else {
+            // rocky / terrestrial: blotches and noise
+            for (let i = 0; i < 1200; i++) {
+                const x = Math.random() * size;
+                const y = Math.random() * size;
+                const r = Math.random() * 3;
+                ctx.fillStyle = `rgba(0,0,0,${0.02 + Math.random() * 0.06})`;
+                ctx.fillRect(x, y, r, r);
+            }
+            // larger continent-like shapes
+            for (let c = 0; c < 6; c++) {
+                ctx.beginPath();
+                ctx.fillStyle = shadeColor(baseColor, (c % 2 === 0) ? -20 : 18, -6);
+                ctx.ellipse(80 + Math.random() * 350, 80 + Math.random() * 350, 60 + Math.random() * 80, 30 + Math.random() * 60, Math.random(), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // small vignette
+        const vGrad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 1.4);
+        vGrad.addColorStop(0, 'rgba(255,255,255,0)');
+        vGrad.addColorStop(1, 'rgba(0,0,0,0.25)');
+        ctx.fillStyle = vGrad;
+        ctx.fillRect(0, 0, size, size);
+
+        const tx = new THREE.CanvasTexture(canvas);
+        tx.needsUpdate = true;
+        return tx;
+    };
+
+    // small helper to shift color hue/lightness via canvas-friendly rgba strings
+    function shadeColor(hexStr, hueShift = 0, lightAdj = 0) {
+        // naive RGB parse from #rrggbb
+        const h = hexStr.replace('#', '');
+        const r = parseInt(h.substring(0,2), 16);
+        const g = parseInt(h.substring(2,4), 16);
+        const b = parseInt(h.substring(4,6), 16);
+        const rr = Math.max(0, Math.min(255, r + lightAdj));
+        const gg = Math.max(0, Math.min(255, g + lightAdj));
+        const bb = Math.max(0, Math.min(255, b + lightAdj));
+        return `rgba(${rr},${gg},${bb},${0.85})`;
+    }
+
+    // Create a planet mesh with optional ring and atmosphere
+    const createPlanetMesh = (name, style, kind = 'rock') => {
+        const geom = new THREE.SphereGeometry(style.size, 32, 32);
+        const tex = createPlanetTexture(name, style.baseColor, kind);
+        const mat = new THREE.MeshStandardMaterial({
+            map: tex,
+            metalness: kind === 'rock' ? 0.05 : 0.0,
+            roughness: kind === 'rock' ? 0.9 : 0.45,
+            emissive: kind === 'gas' ? new THREE.Color(0x222222) : new THREE.Color(0x000000),
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+
+        // gentle atmosphere / glow for gas giants
+        if (kind === 'gas') {
+            const atmMat = new THREE.MeshBasicMaterial({
+                color: hexToCSS(style.baseColor),
+                transparent: true,
+                opacity: 0.12,
+                blending: THREE.AdditiveBlending,
+                side: THREE.FrontSide,
+                depthWrite: false
+            });
+            const atm = new THREE.Mesh(new THREE.SphereGeometry(style.size * 1.12, 24, 24), atmMat);
+            mesh.add(atm);
+        }
+
+        // Saturn-like rings for a specific style (use size heuristic)
+        if (style.size > 0.3) {
+            const inner = style.size * 1.6;
+            const outer = style.size * 3.0;
+            const ringGeo = new THREE.RingGeometry(inner, outer, 64);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xC2A06B, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = 0;
+            mesh.add(ring);
+        }
+
+        return { mesh, texture: tex };
+    };
 
     useEffect(() => {
         skillCounter = 0;
@@ -265,7 +386,7 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
             const skills = data[category];
             const radius = baseOrbitRadius + categoryIndex * orbitSpacing;
             const orbitColor = new THREE.Color().setHSL(categoryIndex / skillCategories.length, 0.9, 0.6);
-
+ 
             // Orbit line (visual guide)
             const orbitGeometry = new THREE.RingGeometry(radius - 0.005, radius + 0.005, 64);
             // Use MeshBasicMaterial for the orbit line too
@@ -280,42 +401,37 @@ const SkillsOrbit = ({ data, activeCategories, setActiveCategories }) => {
             skills.forEach((skill, skillIndexInCat) => {
                 const style = planetStyles[skillCounter % planetStyles.length];
                 skillCounter++;
-                
-                const skillGeometry = new THREE.SphereGeometry(style.size, 16, 16);
-                
-                // Using MeshBasicMaterial for single, unlit, flat color
-                const material = new THREE.MeshBasicMaterial({ 
-                    color: style.baseColor, 
-                }); 
-                const mesh = new THREE.Mesh(skillGeometry, material);
-                
-                // Add Text Sprite (label)
-                const textSprite = createTextSprite(skill, '#ffffff'); // White text
-                if (textSprite) {
-                    // Slightly increase vertical offset so labels clear neighboring rings
-                    textSprite.position.y = style.size + 0.8;
-                    mesh.add(textSprite);
-                }
-                
-                // Calculate initial position around the orbit
-                const angle = (skillIndexInCat / skills.length) * Math.PI * 2;
-                mesh.position.x = radius * Math.cos(angle);
-                mesh.position.z = radius * Math.sin(angle);
-                
-                // Store metadata for animation and filtering
-                mesh.userData = { 
-                    skill: skill, 
-                    radius: radius, 
-                    angle: angle, 
-                    speed: (Math.random() * 0.003) + 0.001,
-                    category: category // Store category for filtering
-                };
-                
-                skillObjects.push(mesh);
-                categoryMeshes[category].planets.push(mesh);
-                orbitsGroup.add(mesh);
-            });
-        });
+                // choose kind by style/size (simple heuristic): larger -> gas with rings, medium -> gas, small -> rock
+                const kind = style.size > 0.32 ? 'gas' : (style.size > 0.22 ? 'gas' : 'rock');
+                const { mesh, texture } = createPlanetMesh(skill, style, kind);
+                 
+                 // Add Text Sprite (label)
+                 const textSprite = createTextSprite(skill, '#ffffff'); // White text
+                 if (textSprite) {
+                     // Slightly increase vertical offset so labels clear neighboring rings
+                     textSprite.position.y = style.size + 0.8;
+                     mesh.add(textSprite);
+                 }
+                 
+                 // Calculate initial position around the orbit
+                 const angle = (skillIndexInCat / skills.length) * Math.PI * 2;
+                 mesh.position.x = radius * Math.cos(angle);
+                 mesh.position.z = radius * Math.sin(angle);
+                 
+                 // Store metadata for animation and filtering
+                 mesh.userData = { 
+                     skill: skill, 
+                     radius: radius, 
+                     angle: angle, 
+                     speed: (Math.random() * 0.003) + 0.001,
+                     category: category // Store category for filtering
+                 };
+                 
+                 skillObjects.push(mesh);
+                 categoryMeshes[category].planets.push(mesh);
+                 orbitsGroup.add(mesh);
+             });
+         });
 
         // Function to update object visibility based on filters
         const updateVisibility = () => {
